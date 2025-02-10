@@ -31,9 +31,4 @@ jobs:
           source venv/bin/activate
           pytest --maxfail=1 --disable-warnings --cov=api
 
-      - name: Upload Test Results (Optional)
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: test-results
-          path: reports
+      
