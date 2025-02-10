@@ -1,36 +1,65 @@
-name: CI Pipeline::Test
+name: Deploy Pipeline
 
 on:
-  pull_request:
+  push:
     branches:
       - main
 
 jobs:
-  test:
-    name: Run Tests
+  deploy:
+    name: Deploy to EC2
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up AWS CLI
+        uses: aws-actions/configure-aws-credentials@v2
         with:
-          python-version: '3.10'
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Install Dependencies
+      - name: Log in to Amazon ECR
         run: |
-          python -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-
-      - name: Run Tests
+      - name: Build and Push Docker Image
         run: |
-          source venv/bin/activate
-          pytest --maxfail=1 --disable-warnings --cov=api
+          docker build -t fastapi-app .
+          docker tag fastapi-app:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/fastapi-app:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/fastapi-app:latest
 
-      
+      - name: Deploy on EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ubuntu
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          echo "$SSH_KEY" > private_key.pem
+          chmod 600 private_key.pem
+
+          ssh -o StrictHostKeyChecking=no -i private_key.pem $EC2_USER@$EC2_HOST << EOF
+            IMAGE_NAME="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/fastapi-app:latest"
+
+            # Re-authenticate with AWS ECR before pulling the image
+            aws ecr get-login-password --region $AWS_REGION | sudo docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+            # Pull the latest image from ECR
+            sudo docker pull \$IMAGE_NAME
+
+            # Check if container exists before stopping/removing
+            if sudo docker ps -a --format "{{.Names}}" | grep -q "fastapi-app"; then
+                sudo docker stop fastapi-app
+                sudo docker rm fastapi-app
+            fi
+
+            # Run the container
+            sudo docker run -d --name fastapi-app -p 8000:8000 \$IMAGE_NAME
+
+            # Restart Nginx
+            sudo systemctl restart nginx
+          EOF
