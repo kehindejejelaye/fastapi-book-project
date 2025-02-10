@@ -33,4 +33,3 @@ jobs:
           source venv/bin/activate
           pytest --maxfail=1 --disable-warnings --cov=api
 
-      
