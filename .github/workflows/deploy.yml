@@ -58,7 +58,7 @@ jobs:
             fi
 
             # Run the container
-            sudo docker run -d --name fastapi-app -p 8000:8000 \$IMAGE_NAME
+            sudo docker run -d --name fastapi-app -p 80:8000 \$IMAGE_NAME
 
             # Restart Nginx
             sudo systemctl restart nginx
