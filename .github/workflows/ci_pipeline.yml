@@ -31,7 +31,7 @@ jobs:
       - name: Run Tests
         run: |
           source venv/bin/activate
-          pytest --maxfail=1 --disable-warnings --cov=api
+          pytest --maxfail=1 --disable-warnings --cov=api || exit 1
 
       # - name: Upload Test Results (Optional)
       #   if: always()
